@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PubCast AI — Audio Board</title>
+<style>
+:root{
+  --brass:#c8a44a;--brass-hi:#f0d080;--brass-lo:#7a5e22;
+  --cream:#f5e8c8;--cream-dim:#8a7860;--muted:#5a4e3e;
+  --red:#d94040;--red-glow:rgba(217,64,64,.5);
+  --green:#28c870;--green-glow:rgba(40,200,112,.4);
+  --crt:#2ef090;
+  --mono:"Courier New",Courier,monospace;
+  --serif:Georgia,"Times New Roman",serif;
+  --pressed:inset 0 3px 8px rgba(0,0,0,.9),inset 0 1px 3px rgba(0,0,0,.7);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{background:#030201}
+body{
+  font-family:var(--mono);color:var(--cream);min-height:100vh;
+  overflow-x:hidden;
+  background:
+    radial-gradient(ellipse 60% 25% at 50% 0%,rgba(200,164,74,.12),transparent),
+    radial-gradient(ellipse 35% 40% at 5% 40%,rgba(180,80,30,.08),transparent),
+    linear-gradient(180deg,#160a03 0%,#080301 50%,#030100 100%);
+}
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    repeating-linear-gradient(90deg,transparent 0 71px,rgba(200,164,74,.018) 72px 73px),
+    repeating-linear-gradient(180deg,transparent 0 3px,rgba(0,0,0,.10) 4px 5px);
+}
+
+/* NAV */
+.nav-strip{position:fixed;top:10px;left:10px;z-index:300;display:flex;gap:4px}
+.nav-strip a{
+  background:rgba(8,4,1,.88);border:1px solid var(--brass-lo);
+  border-top-color:rgba(200,164,74,.5);color:var(--brass);
+  font-family:var(--mono);font-size:9px;letter-spacing:1.5px;
+  padding:5px 10px;text-decoration:none;
+  box-shadow:0 2px 6px rgba(0,0,0,.5),inset 0 1px 0 rgba(200,164,74,.12);
+  transition:all .15s;
+}
+.nav-strip a:hover{background:rgba(200,164,74,.12);border-color:var(--brass)}
+.nav-strip a:active{box-shadow:var(--pressed);transform:translateY(1px)}
+
+/* CONSOLE FRAME */
+.console-wrap{
+  position:relative;width:100%;max-width:1400px;margin:0 auto;
+  user-select:none;z-index:1;padding:5px;
+  background:linear-gradient(135deg,var(--brass-lo) 0%,transparent 35%,transparent 65%,var(--brass-lo) 100%);
+  box-shadow:0 8px 48px rgba(0,0,0,.85),0 0 0 1px rgba(200,164,74,.2);
+}
+.console-img{
+  width:100%;height:auto;display:block;
+  filter:brightness(1.05) contrast(1.08) saturate(1.1);
+}
+
+/* HOTSPOTS */
+.hotspot{
+  position:absolute;cursor:pointer;border:none;background:transparent;
+  transition:filter .1s,transform .08s,box-shadow .1s;z-index:10;
+}
+
+/* Fader hotspot — tall thin rect */
+.hotspot.fader{
+  border-radius:4px;
+  background:linear-gradient(180deg,rgba(200,164,74,.06) 0%,rgba(80,40,10,.2) 100%);
+  box-shadow:0 0 0 1px rgba(200,164,74,.25),inset 0 1px 0 rgba(255,255,255,.04);
+}
+.hotspot.fader:hover{
+  background:linear-gradient(180deg,rgba(200,164,74,.18) 0%,rgba(100,55,15,.4) 100%);
+  box-shadow:0 0 0 1px rgba(200,164,74,.55),0 0 14px rgba(200,164,74,.25);
+}
+.hotspot.fader:active{
+  transform:scaleY(.97) translateY(1px);
+  box-shadow:var(--pressed),0 0 0 1px rgba(200,164,74,.3);
+}
+
+/* Round knob */
+.hotspot.knob{
+  border-radius:50%;
+  background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.08),rgba(40,20,5,.7) 65%,rgba(10,5,1,.9) 100%);
+  box-shadow:
+    0 0 0 1px rgba(200,164,74,.4),
+    inset -1px -1px 4px rgba(0,0,0,.8),
+    inset 1px 1px 2px rgba(255,255,255,.08),
+    0 3px 7px rgba(0,0,0,.6);
+}
+.hotspot.knob:hover{
+  filter:brightness(1.6);
+  box-shadow:0 0 0 1px rgba(200,164,74,.75),0 0 14px rgba(200,164,74,.35),inset -1px -1px 4px rgba(0,0,0,.6),0 3px 7px rgba(0,0,0,.5);
+}
+.hotspot.knob:active{
+  transform:scale(.85) translateY(1px);
+  box-shadow:0 0 0 1px rgba(200,164,74,.4),inset 0 3px 8px rgba(0,0,0,.95);
+  filter:brightness(.65);
+}
+
+/* Arc button cluster */
+.hotspot.arcbtn{
+  border-radius:3px;
+  background:radial-gradient(ellipse at 50% 30%,rgba(255,240,200,.08),rgba(30,15,3,.75) 70%);
+  box-shadow:
+    0 0 0 1px rgba(200,164,74,.3),
+    inset 0 1px 0 rgba(255,255,255,.07),
+    0 2px 5px rgba(0,0,0,.55);
+}
+.hotspot.arcbtn:hover{
+  background:radial-gradient(ellipse at 50% 30%,rgba(255,240,200,.22),rgba(50,25,5,.8) 70%);
+  box-shadow:0 0 0 1px rgba(200,164,74,.65),0 0 10px rgba(200,164,74,.22),0 2px 5px rgba(0,0,0,.5);
+  filter:brightness(1.4);
+}
+.hotspot.arcbtn:active{
+  transform:scale(.88) translateY(1px);
+  box-shadow:var(--pressed),0 0 0 1px rgba(200,164,74,.25);
+  filter:brightness(.6);
+}
+.hotspot.arcbtn.lit{
+  background:radial-gradient(ellipse at 50% 35%,rgba(255,240,180,.35),rgba(40,20,4,.8) 65%);
+  box-shadow:0 0 0 1px rgba(200,164,74,.6),0 0 10px rgba(200,164,74,.3),inset 0 0 6px rgba(255,220,100,.15);
+}
+
+/* Monitor hotspot */
+.hotspot.monitor{
+  border-radius:4px;
+  background:rgba(0,0,0,.0);
+  box-shadow:none;
+}
+.hotspot.monitor:hover{
+  box-shadow:0 0 0 2px rgba(200,164,74,.5),0 0 20px rgba(200,164,74,.2);
+}
+.hotspot.monitor:active{transform:scale(.99)}
+
+/* TOOLTIP */
+.tooltip{
+  position:absolute;z-index:60;
+  background:rgba(4,2,0,.96);
+  border:1px solid var(--brass-lo);border-top-color:rgba(200,164,74,.55);
+  color:var(--cream);font-size:.58rem;letter-spacing:1px;
+  padding:3px 10px;white-space:nowrap;pointer-events:none;
+  display:none;box-shadow:0 4px 12px rgba(0,0,0,.6);
+  font-family:var(--mono);
+}
+.hotspot:hover .tooltip{display:block}
+
+/* STATUS OVERLAY */
+.status-overlay{
+  position:absolute;z-index:15;pointer-events:none;
+  font-family:var(--mono);font-size:clamp(.28rem,.55vw,.38rem);
+  color:var(--crt);text-shadow:0 0 5px var(--crt);line-height:1.5;
+}
+
+/* HUD MUTE */
+.hud-mute{
+  position:fixed;top:10px;left:50%;transform:translateX(-50%);
+  z-index:400;display:none;align-items:center;gap:10px;
+  background:rgba(4,1,0,.92);border:2px solid var(--red);
+  padding:5px 22px;color:var(--red);font-size:.9rem;
+  font-weight:700;letter-spacing:3px;
+  box-shadow:0 0 28px var(--red-glow);
+}
+.hud-mute.on{display:flex}
+
+/* KEYBOARD BAR */
+.hk-bar{
+  text-align:center;padding:6px;font-size:.5rem;
+  color:var(--muted);letter-spacing:1.2px;
+  border-top:1px solid rgba(200,164,74,.05);
+  position:relative;z-index:1;
+}
+.hk{color:var(--brass);font-weight:700}
+
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-thumb{background:rgba(200,164,74,.2)}
+</style>
+</head>
+<body>
+
+<div class="hud-mute" id="hudMute">⚠ ALL MUTED</div>
+
+<nav class="nav-strip">
+  <a href="/static/control_room.html">← CONTROL ROOM</a>
+  <a href="/director-switcher">DIRECTOR</a>
+  <a href="/stage">STAGE</a>
+</nav>
+
+<div class="console-wrap" id="consoleWrap">
+  <img class="console-img" src="audio_console.png" id="consoleImg" alt="PubCast Audio Board" draggable="false">
+
+  <!-- ── FADERS ─────────────────────────────────────────────────────────── -->
+  <!-- Channel 1-8 group (left fader bank) -->
+  <button class="hotspot fader" id="fCh1" style="left:13.5%;top:60%;width:2%;height:22%"
+    onclick="toggleFader('ch1')"><span class="tooltip" style="bottom:105%;left:50%;transform:translateX(-50%)">CH 1–8</span></button>
+
+  <!-- MIC 1 -->
+  <button class="hotspot fader" id="fMic1" style="left:19%;top:60%;width:2%;height:22%"
+    onclick="toggleFader('mic1')"><span class="tooltip" style="bottom:105%;left:50%;transform:translateX(-50%)">MIC 1</span></button>
+
+  <!-- MIC -->
+  <button class="hotspot fader" id="fMic" style="left:25%;top:60%;width:2%;height:22%"
+    onclick="toggleFader('mic')"><span class="tooltip" style="bottom:105%;left:50%;transform:translateX(-50%)">MIC</span></button>
+
+  <!-- GUEST -->
+  <button class="hotspot fader" id="fGuest" style="left:31%;top:60%;width:2%;height:22%"
+    onclick="toggleFader('guest')"><span class="tooltip" style="bottom:105%;left:50%;transform:translateX(-50%)">GUEST</span></button>
+
+  <!-- AI MIC -->
+  <button class="hotspot fader" id="fAiMic" style="left:43%;top:60%;width:2%;height:22%"
+    onclick="toggleFader('aimic')"><span class="tooltip" style="bottom:105%;left:50%;transform:translateX(-50%)">AI MIC</span></button>
+
+  <!-- BACKGROUND -->
+  <button class="hotspot fader" id="fBg" style="left:50%;top:60%;width:2%;height:22%"
+    onclick="toggleFader('bg')"><span class="tooltip" style="bottom:105%;left:50%;transform:translateX(-50%)">BACKGROUND</span></button>
+
+  <!-- ── KNOBS ──────────────────────────────────────────────────────────── -->
+  <!-- Left bank knobs -->
+  <button class="hotspot knob" style="left:7.5%;top:52%;width:4%;height:6%"
+    onclick="cycleKnob('trim-l')"><span class="tooltip" style="right:110%;top:50%;transform:translateY(-50%)">TRIM L</span></button>
+  <button class="hotspot knob" style="left:7.5%;top:60%;width:4%;height:6%"
+    onclick="cycleKnob('gain-l')"><span class="tooltip" style="right:110%;top:50%;transform:translateY(-50%)">GAIN L</span></button>
+
+  <!-- Right bank knobs -->
+  <button class="hotspot knob" style="left:80%;top:52%;width:4%;height:6%"
+    onclick="cycleKnob('trim-r')"><span class="tooltip" style="left:110%;top:50%;transform:translateY(-50%)">TRIM R</span></button>
+  <button class="hotspot knob" style="left:85%;top:60%;width:4%;height:6%"
+    onclick="cycleKnob('gain-r')"><span class="tooltip" style="left:110%;top:50%;transform:translateY(-50%)">MASTER GAIN</span></button>
+  <button class="hotspot knob" style="left:91%;top:52%;width:4%;height:6%"
+    onclick="cycleKnob('master')"><span class="tooltip" style="left:110%;top:50%;transform:translateY(-50%)">MASTER</span></button>
+
+  <!-- ── ARC BUTTON CLUSTERS ────────────────────────────────────────────── -->
+  <!-- Left arc (source select) -->
+  <button class="hotspot arcbtn lit" id="arc-l1" style="left:14%;top:44%;width:2.2%;height:3.2%"
+    onclick="arcPress('src1')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">SRC 1</span></button>
+  <button class="hotspot arcbtn" id="arc-l2" style="left:17%;top:42%;width:2.2%;height:3.2%"
+    onclick="arcPress('src2')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">SRC 2</span></button>
+  <button class="hotspot arcbtn" id="arc-l3" style="left:20%;top:41%;width:2.2%;height:3.2%"
+    onclick="arcPress('src3')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">SRC 3</span></button>
+  <button class="hotspot arcbtn" id="arc-l4" style="left:23%;top:40.5%;width:2.2%;height:3.2%"
+    onclick="arcPress('src4')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">SRC 4</span></button>
+  <button class="hotspot arcbtn" id="arc-l5" style="left:26%;top:41%;width:2.2%;height:3.2%"
+    onclick="arcPress('src5')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">SRC 5</span></button>
+  <button class="hotspot arcbtn" id="arc-l6" style="left:29%;top:42%;width:2.2%;height:3.2%"
+    onclick="arcPress('src6')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">SRC 6</span></button>
+
+  <!-- Centre arc (routing) -->
+  <button class="hotspot arcbtn lit" id="arc-c1" style="left:40%;top:40%;width:2.2%;height:3.2%"
+    onclick="arcPress('pgm')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">PGM</span></button>
+  <button class="hotspot arcbtn" id="arc-c2" style="left:43%;top:38.5%;width:2.2%;height:3.2%"
+    onclick="arcPress('pvw')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">PVW</span></button>
+  <button class="hotspot arcbtn" id="arc-c3" style="left:46%;top:38%;width:2.2%;height:3.2%"
+    onclick="arcPress('aux1')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">AUX 1</span></button>
+  <button class="hotspot arcbtn" id="arc-c4" style="left:49%;top:38%;width:2.2%;height:3.2%"
+    onclick="arcPress('aux2')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">AUX 2</span></button>
+  <button class="hotspot arcbtn" id="arc-c5" style="left:52%;top:38.5%;width:2.2%;height:3.2%"
+    onclick="arcPress('mon')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">MON</span></button>
+  <button class="hotspot arcbtn" id="arc-c6" style="left:55%;top:40%;width:2.2%;height:3.2%"
+    onclick="arcPress('rec')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">REC</span></button>
+
+  <!-- Right arc (effects) -->
+  <button class="hotspot arcbtn" id="arc-r1" style="left:64%;top:42%;width:2.2%;height:3.2%"
+    onclick="arcPress('eq')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">EQ</span></button>
+  <button class="hotspot arcbtn" id="arc-r2" style="left:67%;top:41%;width:2.2%;height:3.2%"
+    onclick="arcPress('comp')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">COMP</span></button>
+  <button class="hotspot arcbtn" id="arc-r3" style="left:70%;top:40.5%;width:2.2%;height:3.2%"
+    onclick="arcPress('gate')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">GATE</span></button>
+  <button class="hotspot arcbtn" id="arc-r4" style="left:73%;top:41%;width:2.2%;height:3.2%"
+    onclick="arcPress('rev')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">REVERB</span></button>
+  <button class="hotspot arcbtn" id="arc-r5" style="left:76%;top:42%;width:2.2%;height:3.2%"
+    onclick="arcPress('delay')"><span class="tooltip" style="bottom:110%;left:50%;transform:translateX(-50%)">DELAY</span></button>
+
+  <!-- ── MONITOR SCREENS ────────────────────────────────────────────────── -->
+  <!-- Live Feed monitor -->
+  <button class="hotspot monitor" style="left:1%;top:2%;width:37%;height:54%"
+    onclick="window.open('/stage','_blank')">
+    <span class="tooltip" style="bottom:5%;left:50%;transform:translateX(-50%)">LIVE FEED — CLICK TO OPEN STAGE</span>
+  </button>
+
+  <!-- Audio Levels monitor -->
+  <button class="hotspot monitor" style="left:55%;top:2%;width:30%;height:26%"
+    onclick="openPanel('levels')">
+    <span class="tooltip" style="bottom:5%;left:50%;transform:translateX(-50%)">AUDIO LEVELS</span>
+  </button>
+
+  <!-- Transmission Data monitor -->
+  <button class="hotspot monitor" style="left:55%;top:30%;width:30%;height:26%"
+    onclick="openPanel('transmission')">
+    <span class="tooltip" style="bottom:5%;left:50%;transform:translateX(-50%)">TRANSMISSION DATA</span>
+  </button>
+
+  <!-- Status overlays on monitors -->
+  <div class="status-overlay" style="left:3%;top:88%;width:35%">
+    <span id="sigStatus">SIGNAL STATUS: NOMINAL</span>
+  </div>
+  <div class="status-overlay" style="left:56%;top:4%;width:28%;color:var(--brass);text-shadow:0 0 5px rgba(200,164,74,.5)">
+    <div id="levelStatus">AUDIO LEVELS</div>
+  </div>
+  <div class="status-overlay" style="left:56%;top:32%;width:28%;color:var(--brass);text-shadow:0 0 5px rgba(200,164,74,.5)">
+    <div id="txStatus">TRANSMISSION DATA</div>
+  </div>
+</div>
+
+<div class="hk-bar">
+  <span class="hk">M</span> MUTE ALL ·
+  <span class="hk">1–6</span> SOURCE SELECT ·
+  <span class="hk">ESC</span> PANIC ·
+  <span class="hk">←→</span> CONTROL ROOM
+</div>
+
+<script>
+"use strict";
+const g = id => document.getElementById(id);
+
+const state = {
+  faders: {ch1:80, mic1:90, mic:90, guest:80, aimic:70, bg:35},
+  muted:  {ch1:false, mic1:false, mic:false, guest:false, aimic:false, bg:true},
+  activeArcs: new Set(['src1','pgm']),
+};
+
+function toggleFader(id) {
+  state.muted[id] = !state.muted[id];
+  const el = g('f' + id.replace(/\d/,'').replace('mic1','Mic1').replace('mic','Mic').replace('guest','Guest').replace('aimic','AiMic').replace('bg','Bg').replace('ch1','Ch1'));
+  updateFaderVis();
+  apiFetch('/api/audio/channel', {channel: id, muted: state.muted[id], level: state.faders[id]}).catch(()=>{});
+}
+
+function updateFaderVis() {
+  const allMuted = Object.values(state.muted).every(v => v);
+  g('hudMute').className = 'hud-mute' + (allMuted ? ' on' : '');
+  g('sigStatus').textContent = allMuted ? 'SIGNAL STATUS: MUTED' : 'SIGNAL STATUS: NOMINAL';
+}
+
+function cycleKnob(id) {
+  apiFetch('/api/audio/knob', {knob: id}).catch(()=>{});
+}
+
+function arcPress(id) {
+  // Toggle arc button lit state
+  const el = g('arc-' + (['src1','src2','src3','src4','src5','src6'].includes(id)
+    ? 'l' + (parseInt(id.replace('src',''))): 
+    ['pgm','pvw','aux1','aux2','mon','rec'].includes(id)
+    ? 'c' + (['pgm','pvw','aux1','aux2','mon','rec'].indexOf(id)+1)
+    : 'r' + (['eq','comp','gate','rev','delay'].indexOf(id)+1)));
+  if (el) el.classList.toggle('lit');
+  apiFetch('/api/audio/route', {route: id}).catch(()=>{});
+}
+
+function openPanel(name) {
+  console.log('Panel:', name);
+  // Phase 2: open overlay panel for levels/transmission data
+}
+
+document.addEventListener('keydown', e => {
+  if (['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) return;
+  switch(e.key) {
+    case 'm': case 'M':
+      Object.keys(state.muted).forEach(k => state.muted[k] = true);
+      updateFaderVis();
+      break;
+    case 'Escape':
+      Object.keys(state.muted).forEach(k => state.muted[k] = true);
+      updateFaderVis();
+      apiFetch('/api/production/panic', {}).catch(()=>{});
+      break;
+    case '1': arcPress('src1'); break;
+    case '2': arcPress('src2'); break;
+    case '3': arcPress('src3'); break;
+    case '4': arcPress('src4'); break;
+    case '5': arcPress('src5'); break;
+    case '6': arcPress('src6'); break;
+  }
+});
+
+async function apiFetch(path, body) {
+  try {
+    const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    return r.status === 204 ? null : r.json();
+  } catch(_) {}
+}
+
+// WS
+let ws;
+function connectWS() {
+  try {
+    ws = new WebSocket('ws://' + location.host + '/ws/controlroom');
+    ws.onmessage = e => {
+      try {
+        const m = JSON.parse(e.data);
+        if (m.type === 'audio_level') {
+          g('levelStatus').textContent = 'AUDIO LEVELS · ' + (m.payload?.db || '') + ' dB';
+        }
+        if (m.type === 'signal_status') {
+          g('sigStatus').textContent = 'SIGNAL STATUS: ' + (m.payload?.status || 'NOMINAL').toUpperCase();
+        }
+      } catch(_) {}
+    };
+    ws.onclose = () => setTimeout(connectWS, 3000);
+  } catch(_) {}
+}
+
+updateFaderVis();
+connectWS();
+</script>
+</body>
+</html>
