@@ -1,0 +1,16 @@
+# PubCast AI Production Requirements
+# © 2024-2025 Rear View Foresight LLC
+# "Feic Mo Chroí - See My Heart"
+
+# Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+websockets>=11.0.2
+pydantic>=2.0.0
+python-multipart>=0.0.6
+
+# OpenAI Integration
+openai>=1.3.0
+
+# Utilities
+python-dotenv>=1.0.0
