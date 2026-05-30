@@ -54,6 +54,14 @@ class StreamEvent:
         })
 
 
+async def _collect_events(agen):
+    """Collect all events from an async generator into a list."""
+    events = []
+    async for event in agen:
+        events.append(event)
+    return events
+
+
 class WiredOrchestrator:
     """
     Main orchestrator connecting EQ adaptor + GPT adapter.
@@ -72,6 +80,7 @@ class WiredOrchestrator:
         gpt_adapter,  # GPTAdapter instance
         logger: Optional[logging.Logger] = None,
         max_agents_per_turn: int = 2,
+        card_orchestrator=None,  # EQOrchestrator instance (fallback when GPT unavailable)
     ):
         """
         Initialize orchestrator.
@@ -81,9 +90,11 @@ class WiredOrchestrator:
             gpt_adapter: Configured GPTAdapter instance
             logger: Python logger
             max_agents_per_turn: Max agents responding to each message
+            card_orchestrator: EQOrchestrator for card-based fallback responses
         """
         self.eq = eq_adaptor
         self.gpt = gpt_adapter
+        self.card_orchestrator = card_orchestrator
         self.logger = logger or logging.getLogger(__name__)
         self.max_agents_per_turn = max_agents_per_turn
         
@@ -175,7 +186,25 @@ class WiredOrchestrator:
             raise ValueError(f"Room {room_id} not found")
         
         self.logger.info(f"[{room_id}] {user_id}: {message[:50]}...")
-        
+
+        if not self.eq:
+            yield StreamEvent(
+                event_type="error",
+                room_id=room_id,
+                agent_id="system",
+                payload={"error": "Emotional intelligence system not available"}
+            )
+            return
+
+        if not self.gpt and not self.card_orchestrator:
+            yield StreamEvent(
+                event_type="error",
+                room_id=room_id,
+                agent_id="system",
+                payload={"error": "Response generation system not available"}
+            )
+            return
+
         # Get conversation history (convert deque to list)
         history = [json.loads(msg) if isinstance(msg, str) else msg for msg in room.conversation_history]
         
@@ -223,19 +252,23 @@ class WiredOrchestrator:
             )
             streaming_tasks.append(task)
         
-        # Run all agent streams concurrently
+        # Run all agent streams concurrently via tasks
         if streaming_tasks:
-            async for event in asyncio.gather(*streaming_tasks, return_exceptions=True):
-                if isinstance(event, Exception):
-                    self.logger.error(f"Agent streaming error: {event}")
+            tasks = [asyncio.create_task(_collect_events(gen)) for gen in streaming_tasks]
+            done, _ = await asyncio.wait(tasks)
+            for task in done:
+                exc = task.exception()
+                if exc:
+                    self.logger.error(f"Agent streaming error: {exc}")
                     yield StreamEvent(
                         event_type="error",
                         room_id=room_id,
                         agent_id="system",
-                        payload={"error": str(event)}
+                        payload={"error": str(exc)}
                     )
-                elif event:
-                    yield event
+                else:
+                    for event in task.result():
+                        yield event
     
     async def _stream_agent_response(
         self,
@@ -254,44 +287,73 @@ class WiredOrchestrator:
         room = self.get_room(room_id)
         if not room:
             return
-        
+
         # Announce agent start
+        agent_name = agent_id
+        if self.gpt:
+            agent_info = self.gpt.get_agent_info(agent_id)
+            if not agent_info:
+                yield StreamEvent(
+                    event_type="error",
+                    room_id=room_id,
+                    agent_id=agent_id,
+                    payload={"error": f"Unknown agent '{agent_id}'"}
+                )
+                return
+            agent_name = agent_info.get('name', agent_id)
+
         yield StreamEvent(
             event_type="agent_start",
             room_id=room_id,
             agent_id=agent_id,
             payload={
-                "agent_name": self.gpt.get_agent_info(agent_id)['name'],
+                "agent_name": agent_name,
                 "care_level": eq_result['state']['care_name'],
             }
         )
         
-        # Mark agent active
-        async with self.room_locks[room_id]:
-            room.active_agents.add(agent_id)
-        
         try:
-            # Stream from GPT
             response_text = ""
-            async for chunk in self.gpt.stream_response(
-                agent_id=agent_id,
-                user_message=user_message,
-                conversation_history=conversation_history,
-                eq_result=eq_result,
-            ):
-                response_text += chunk
-                
-                # Yield chunk event
+
+            if self.gpt:
+                # Stream from GPT
+                async for chunk in self.gpt.stream_response(
+                    agent_id=agent_id,
+                    user_message=user_message,
+                    conversation_history=conversation_history,
+                    eq_result=eq_result,
+                ):
+                    response_text += chunk
+                    
+                    yield StreamEvent(
+                        event_type="stream_chunk",
+                        room_id=room_id,
+                        agent_id=agent_id,
+                        payload={"chunk": chunk}
+                    )
+                    
+                    if len(chunk) > 10:
+                        await asyncio.sleep(0.01)
+
+            elif self.card_orchestrator:
+                # Fallback: use card-based response system
+                try:
+                    card_response = self.card_orchestrator.process_message(
+                        user_message=user_message,
+                        user_id=room_id,
+                    )
+                    response_text = card_response.response_text
+                except Exception as e:
+                    self.logger.error(f"Card fallback error: {e}")
+                    response_text = "I'm here for you. Tell me more about what's going on."
+
+                # Yield card response as a single chunk
                 yield StreamEvent(
                     event_type="stream_chunk",
                     room_id=room_id,
                     agent_id=agent_id,
-                    payload={"chunk": chunk}
+                    payload={"chunk": response_text}
                 )
-                
-                # Yield periodically for batching
-                if len(chunk) > 10:
-                    await asyncio.sleep(0.01)
             
             # Store final response in history
             async with self.room_locks[room_id]:
@@ -331,11 +393,16 @@ class WiredOrchestrator:
         tags: Optional[List[str]] = None
     ) -> None:
         """Store a memory about a user"""
+        if not self.eq:
+            self.logger.warning("EQ adaptor not available — cannot store memory")
+            return
         self.eq.store_memory(user_id, content, memory_type, tags)
         self.logger.debug(f"Stored {memory_type} memory for {user_id}")
     
     def recall_memory(self, user_id: str, query: str = "") -> str:
         """Get formatted memory context for a user"""
+        if not self.eq:
+            return ""
         return self.eq.get_memory_context(user_id, query)
     
     # ========================================================================
@@ -344,6 +411,8 @@ class WiredOrchestrator:
     
     def get_user_emotional_state(self, user_id: str) -> Dict[str, Any]:
         """Get current emotional state for a user"""
+        if not self.eq:
+            return {"error": "EQ adaptor not available"}
         state = self.eq.jeremy.get_emotional_state(user_id)
         return {
             "care_level": state.care_level,
@@ -391,5 +460,5 @@ class WiredOrchestrator:
             "rooms_active": len(self.rooms),
             "total_participants": total_participants,
             "agents_streaming": total_active_agents,
-            "available_agents": self.gpt.list_agents(),
+            "available_agents": self.gpt.list_agents() if self.gpt else [],
         }

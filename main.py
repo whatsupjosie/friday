@@ -30,6 +30,7 @@ import uvicorn
 from eq_adaptor import EQAdaptor, create_adaptor as create_eq_adaptor
 from gpt_adapter import GPTAdapter, DEFAULT_AGENTS
 from orchestrator_wired import WiredOrchestrator, StreamEvent
+from eq_integration_layer import EQOrchestrator
 
 
 # ============================================================================
@@ -80,6 +81,8 @@ app.add_middleware(
 eq_adaptor: Optional[EQAdaptor] = None
 gpt_adapter: Optional[GPTAdapter] = None
 orchestrator: Optional[WiredOrchestrator] = None
+eq_orchestrator: Optional[EQOrchestrator] = None
+
 
 
 # ============================================================================
@@ -89,29 +92,42 @@ orchestrator: Optional[WiredOrchestrator] = None
 @app.on_event("startup")
 async def startup():
     """Initialize all systems on startup"""
-    global eq_adaptor, gpt_adapter, orchestrator
+    global eq_adaptor, gpt_adapter, orchestrator, eq_orchestrator
     
     logger.info("🚀 PubCast AI starting up...")
     
-    # Verify API key
-    if not Config.OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY environment variable not set")
-    
+    # Determine mode: LITE vs FULL
+    is_lite = not Config.OPENAI_API_KEY
+    if is_lite:
+        logger.info("⚡ LITE mode — no API key, responses will use placeholder text")
+    else:
+        logger.info("🔑 FULL mode — OpenAI API key detected")
+
     # Create data directory
     Config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     
     try:
-        # Initialize EQ adaptor
+        # Initialize EQ adaptor (always available, no API key needed)
         logger.info("🦗 Initializing EQ adaptor...")
         eq_adaptor = create_eq_adaptor(log_level=Config.LOG_LEVEL)
+
+        # Initialize context-aware EQ system
+        logger.info("🧠 Initializing context-aware EQ system...")
+        eq_orchestrator = EQOrchestrator(logger=logger)
+        logger.info("✅ Context-aware EQ system ready")
+
         
-        # Initialize GPT adapter
-        logger.info("🤖 Initializing GPT adapter...")
-        gpt_adapter = GPTAdapter(
-            api_key=Config.OPENAI_API_KEY,
-            model=Config.OPENAI_MODEL,
-            logger=logger
-        )
+        # Initialize GPT adapter (may be None in LITE mode)
+        if is_lite:
+            logger.info("🤖 LITE mode — GPT adapter disabled")
+            gpt_adapter = None
+        else:
+            logger.info("🤖 Initializing GPT adapter...")
+            gpt_adapter = GPTAdapter(
+                api_key=Config.OPENAI_API_KEY,
+                model=Config.OPENAI_MODEL,
+                logger=logger
+            )
         
         # Initialize orchestrator
         logger.info("🎼 Initializing orchestrator...")
@@ -119,12 +135,14 @@ async def startup():
             eq_adaptor=eq_adaptor,
             gpt_adapter=gpt_adapter,
             logger=logger,
-            max_agents_per_turn=2
+            max_agents_per_turn=2,
+            card_orchestrator=eq_orchestrator,
         )
         
         logger.info("✅ PubCast AI ready")
         logger.info(f"🌐 Web interface: http://{Config.HOST}:{Config.PORT}")
         logger.info(f"📁 Data directory: {Config.DATA_DIR}")
+        logger.info(f"🔄 Mode: {'LITE' if is_lite else 'FULL'}")
         
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
@@ -145,9 +163,11 @@ async def shutdown():
 async def health():
     """System health status"""
     if not orchestrator:
-        return {"status": "initializing"}
+        return {"status": "initializing", "mode": "unknown"}
     
-    return orchestrator.get_system_health()
+    result = orchestrator.get_system_health()
+    result["mode"] = "lite" if not Config.OPENAI_API_KEY else "full"
+    return result
 
 
 @app.get("/api/agents")

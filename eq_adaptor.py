@@ -433,7 +433,7 @@ class RoutingEngine:
             },
             3: {  # TOTAL_CARE_MANDATE
                 "specialties": ["crisis_support", "validation", "expert"],
-                "agents": ["sheila_crisis"],
+                "agents": ["sheila"],
                 "suppress": ["humor", "light", "dismissive"],
                 "prompt_mod": "This is a crisis situation. Validate feelings. Offer concrete support. Consider escalation.",
             },
